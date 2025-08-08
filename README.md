@@ -186,9 +186,3 @@ npm run test
 3. Commit suas mudanças
 4. Abra um Pull Request
 5. Aguarde revisão
-
-
----
-
-Se quiser, já posso te ajudar a montar a estrutura do monorepo atualizada com esses serviços, só avisar!
-```
