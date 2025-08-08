@@ -53,57 +53,40 @@
 
 ---
 
-## 2. Diagrama de Sequência
+## 2. Fluxos Detalhados - Auth Service
 
 ### 2.1 Fluxo de Criação de Conta
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant AuthAPI
-    participant UserRepo
-    participant Cognito
-    participant Redis
+1. O cliente faz uma requisição HTTP POST para o endpoint `/register` enviando **username**, **email** e **password**.
+2. O serviço `auth-service` consulta o repositório de usuários (`UserRepo`) para verificar se o username já existe.
+3. Se o usuário já existir, o serviço retorna uma resposta HTTP 409 Conflict para o cliente, indicando que o nome já está em uso.
+4. Se o usuário não existir:
 
-    Client->>AuthAPI: POST /register (username, email, password)
-    AuthAPI->>UserRepo: findByUsername(username)
-    alt usuário não existe
-        AuthAPI->>Cognito: criar usuário no Cognito
-        Cognito-->>AuthAPI: sucesso
-        AuthAPI->>UserRepo: create(User)
-        UserRepo-->>AuthAPI: usuário criado
-        AuthAPI-->>Client: 201 Created
-    else usuário já existe
-        AuthAPI-->>Client: 409 Conflict
-    end
-```
+   * O serviço chama a API do AWS Cognito para criar o usuário no pool de usuários.
+   * Se a criação no Cognito for bem-sucedida, o serviço cria o registro do usuário no banco local (via `UserRepo`).
+   * Após criar o registro local, o serviço retorna uma resposta HTTP 201 Created para o cliente, confirmando a criação da conta.
+
+---
 
 ### 2.2 Fluxo de Login com MFA
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant AuthAPI
-    participant Cognito
-    participant Redis
+1. O cliente faz uma requisição HTTP POST para o endpoint `/login` enviando **username** e **password**.
+2. O serviço `auth-service` inicia o processo de autenticação chamando o Cognito (`InitiateAuth`).
+3. O Cognito responde:
 
-    Client->>AuthAPI: POST /login (username, password)
-    AuthAPI->>Cognito: InitiateAuth
-    alt MFA requerido
-        Cognito-->>AuthAPI: ChallengeName + Session
-        AuthAPI->>Redis: salvar sessão MFA
-        AuthAPI-->>Client: 200 MFA Required
-        Client->>AuthAPI: POST /mfa (username, code)
-        AuthAPI->>Redis: buscar sessão MFA
-        AuthAPI->>Cognito: RespondToAuthChallenge (code)
-        Cognito-->>AuthAPI: tokens JWT
-        AuthAPI->>Redis: limpar sessão MFA
-        AuthAPI-->>Client: 200 OK + tokens
-    else login sem MFA
-        Cognito-->>AuthAPI: tokens JWT
-        AuthAPI-->>Client: 200 OK + tokens
-    end
-```
+   * Se o login requer MFA, retorna um desafio com `ChallengeName` e um token `Session`.
+   * Se o login não requer MFA, retorna diretamente os tokens JWT.
+4. Caso o MFA seja requerido:
+
+   * O serviço salva o token `Session` no cache Redis, associado ao usuário.
+   * O serviço responde ao cliente com HTTP 200 MFA Required, informando que o código MFA deve ser enviado.
+   * O cliente envia o código MFA via POST no endpoint `/mfa` com o username e o código.
+   * O serviço busca o token `Session` no Redis.
+   * O serviço chama o Cognito para validar o código MFA (`RespondToAuthChallenge`).
+   * Se o código for válido, o Cognito retorna os tokens JWT.
+   * O serviço limpa a sessão MFA no Redis.
+   * O serviço retorna os tokens JWT ao cliente com HTTP 200 OK.
+5. Caso o login não exija MFA, o serviço retorna os tokens JWT diretamente para o cliente com HTTP 200 OK.
 
 ---
 
